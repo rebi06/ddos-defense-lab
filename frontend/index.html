@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DDoS Defense Lab</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d0d0d;
+      --bg2:     #141414;
+      --bg3:     #1a1a1a;
+      --border:  #2a2a2a;
+      --text:    #e0e0e0;
+      --text2:   #666;
+      --ok:      #4a9a4a;
+      --warn:    #cc8800;
+      --danger:  #cc2222;
+      --hi:      #ffffff;
+    }
+
+    body {
+      font-family: 'Share Tech Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px;
+      min-height: 100vh;
+      transition: background 0.8s;
+    }
+
+    body.phase-attack {
+      --bg: #120000; --bg2: #1a0000; --bg3: #200000;
+      --border: #3a0000; --text: #ffcccc; --text2: #884444;
+      --ok: #cc4444; --warn: #ff6600; --danger: #ff2222; --hi: #ffffff;
+    }
+
+    body.phase-recovering {
+      --bg: #0a0800; --bg2: #120f00; --bg3: #181500;
+      --border: #332a00; --text: #fff0cc; --text2: #887744;
+      --ok: #ccaa00; --warn: #ffcc00; --danger: #ff6600; --hi: #ffffff;
+    }
+
+    body.phase-complete {
+      --bg: #001200; --bg2: #001a00; --bg3: #002000;
+      --border: #003a00; --text: #ccffcc; --text2: #448844;
+      --ok: #44cc44; --warn: #88cc00; --danger: #cc4444; --hi: #ffffff;
+    }
+
+    body.phase-emergency {
+      --bg: #100800; --bg2: #180c00; --bg3: #201000;
+      --border: #3a2000; --text: #ffe0cc; --text2: #886644;
+      --ok: #cc8844; --warn: #ff4400; --danger: #ff2200; --hi: #ffffff;
+    }
+
+    .scanline {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.012) 3px, rgba(255,255,255,0.012) 4px);
+      pointer-events: none; z-index: 9999;
+    }
+
+    .top-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 14px;
+      transition: border-color 0.8s;
+    }
+
+    .logo { font-size: 15px; color: var(--hi); letter-spacing: 0.2em; text-transform: uppercase; }
+    .logo-sub { font-size: 9px; color: var(--text2); letter-spacing: 0.25em; margin-top: 3px; }
+    .top-right { display: flex; align-items: center; gap: 16px; }
+
+    .phase-badge {
+      font-size: 11px; letter-spacing: 0.2em; padding: 3px 14px;
+      border: 1px solid var(--text2); color: var(--hi); text-transform: uppercase;
+      transition: all 0.5s;
+    }
+
+    body.phase-attack .phase-badge     { border-color: var(--danger); color: var(--danger); animation: blink 0.6s step-end infinite; }
+    body.phase-recovering .phase-badge { border-color: var(--warn);   color: var(--warn);   animation: blink 1s step-end infinite; }
+    body.phase-complete .phase-badge   { border-color: var(--ok);     color: var(--ok); }
+    body.phase-emergency .phase-badge  { border-color: var(--warn);   color: var(--warn);   animation: blink 0.4s step-end infinite; }
+
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.2; } }
+
+    .clock { font-size: 13px; color: var(--text2); letter-spacing: 0.1em; }
+
+    .metrics-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; margin-bottom: 10px; }
+
+    .card { background: var(--bg2); border: 1px solid var(--border); padding: 10px 12px; transition: background 0.8s, border-color 0.8s; }
+    .card-label { font-size: 9px; color: var(--text2); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 6px; transition: color 0.8s; }
+    .card-value { font-size: 26px; color: var(--hi); transition: color 0.3s; }
+    .card-unit  { font-size: 11px; color: var(--text2); }
+
+    .val-ok     { color: var(--ok); }
+    .val-warn   { color: var(--warn); }
+    .val-danger { color: var(--danger); }
+
+    .grid-main   { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .grid-bottom { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+
+    .panel { background: var(--bg2); border: 1px solid var(--border); padding: 12px; transition: background 0.8s, border-color 0.8s; }
+
+    .panel-title {
+      font-size: 9px; color: var(--text2); letter-spacing: 0.25em; text-transform: uppercase;
+      margin-bottom: 10px; display: flex; align-items: center; gap: 8px; transition: color 0.8s;
+    }
+    .panel-title::after { content:''; flex:1; height:1px; background: var(--border); transition: background 0.8s; }
+
+    .chart-area { height: 80px; display: flex; align-items: flex-end; gap: 1px; }
+    .bar { flex: 1; min-height: 2px; transition: height 0.3s; }
+
+    .alert-list, .log-list, .ip-list { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+    .alert-list::-webkit-scrollbar, .log-list::-webkit-scrollbar, .ip-list::-webkit-scrollbar { width: 2px; }
+    .alert-list::-webkit-scrollbar-thumb, .log-list::-webkit-scrollbar-thumb, .ip-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+    .alert-item { font-size: 11px; padding: 6px 8px; border-left: 2px solid; display: flex; flex-direction: column; gap: 2px; }
+    .alert-danger  { border-color: var(--danger); background: rgba(200,30,30,0.08); }
+    .alert-warning { border-color: var(--warn);   background: rgba(200,130,0,0.08); }
+    .alert-info    { border-color: var(--ok);     background: rgba(60,150,60,0.08); }
+    .alert-message { color: var(--text); }
+    .alert-time    { font-size: 10px; color: var(--text2); }
+
+    .log-item { font-size: 11px; padding: 3px 6px; display: flex; align-items: center; gap: 8px; border-left: 2px solid transparent; }
+    .log-block { border-color: var(--danger); color: var(--danger); }
+    .log-spike { border-color: var(--warn);   color: var(--warn); }
+    .log-ok    { border-color: var(--ok);     color: var(--ok); }
+    .log-time  { font-size: 10px; color: var(--text2); flex-shrink: 0; }
+
+    .ip-item {
+      font-size: 11px; padding: 5px 8px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-left: 2px solid var(--warn); background: rgba(200,100,0,0.06);
+      animation: fadeIn 0.3s ease; gap: 6px;
+    }
+
+    @keyframes fadeIn { from { opacity:0; transform:translateX(-4px); } to { opacity:1; transform:translateX(0); } }
+
+    .ip-addr  { color: var(--warn); letter-spacing: 0.05em; flex: 1; }
+    .ip-count { color: var(--text2); font-size: 10px; flex-shrink: 0; }
+
+    .ip-status-blocked { font-size: 9px; background: var(--danger); color: #fff; padding: 1px 5px; letter-spacing: 0.1em; flex-shrink: 0; }
+    .ip-status-unknown { font-size: 9px; background: #444;          color: #ccc; padding: 1px 5px; letter-spacing: 0.1em; flex-shrink: 0; }
+    .ip-status-manual  { font-size: 9px; background: #660066;       color: #fff; padding: 1px 5px; letter-spacing: 0.1em; flex-shrink: 0; }
+
+    .ip-block-btn {
+      font-size: 9px; padding: 1px 6px;
+      border: 1px solid var(--danger); background: transparent; color: var(--danger);
+      cursor: pointer; font-family: 'Share Tech Mono', monospace; letter-spacing: 0.1em; flex-shrink: 0;
+      transition: all 0.2s;
+    }
+    .ip-block-btn:hover { background: var(--danger); color: #fff; }
+
+    .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+    .stat-box { background: var(--bg3); border: 1px solid var(--border); padding: 6px 8px; text-align: center; transition: background 0.8s, border-color 0.8s; }
+    .stat-label { font-size: 9px; color: var(--text2); letter-spacing: 0.15em; margin-bottom: 2px; }
+    .stat-value { font-size: 20px; color: var(--hi); }
+    .stat-value.fp { color: var(--danger); }
+
+    .block-rate-bar { height: 3px; background: var(--bg3); margin-bottom: 10px; overflow: hidden; }
+    .block-rate-fill { height: 100%; background: var(--ok); transition: width 0.5s, background 0.3s; }
+
+    .hint-box {
+      font-size: 11px; padding: 8px 10px; margin-bottom: 10px;
+      border-left: 2px solid var(--warn); background: rgba(200,130,0,0.08);
+      color: var(--warn); display: none;
+    }
+
+    .ctrl-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); transition: border-color 0.8s; }
+    .ctrl-row:last-of-type { border-bottom: none; }
+    .ctrl-label { font-size: 12px; color: var(--text); letter-spacing: 0.05em; transition: color 0.8s; }
+    .ctrl-desc  { font-size: 9px; color: var(--text2); letter-spacing: 0.1em; margin-top: 1px; transition: color 0.8s; }
+
+    .toggle { position: relative; width: 32px; height: 16px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track { position: absolute; top:0; left:0; right:0; bottom:0; background: var(--bg3); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+    .toggle input:checked + .toggle-track { border-color: var(--ok); }
+    .toggle-track::after { content:''; position:absolute; width:10px; height:10px; background: var(--border); top:2px; left:2px; transition: transform 0.2s, background 0.2s; }
+    .toggle input:checked + .toggle-track::after { transform: translateX(16px); background: var(--ok); }
+
+    .btn {
+      flex: 1; padding: 7px; font-family: 'Share Tech Mono', monospace;
+      font-size: 11px; letter-spacing: 0.12em; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg3); color: var(--text);
+      text-transform: uppercase; transition: all 0.2s;
+    }
+    .btn:hover { border-color: var(--text2); color: var(--hi); }
+    .btn-row { display: flex; gap: 6px; margin-top: 8px; }
+
+    .btn-scenario        { border-color: #224466; color: #4488cc; }
+    .btn-scenario:hover  { background: #224466; color: #fff; }
+    .btn-scenario.active { background: #cc2222; color: #fff; border-color: #cc2222; }
+
+    .btn-emergency        { border-color: #443300; color: #cc8800; }
+    .btn-emergency:hover  { background: #cc6600; color: #fff; border-color: #cc6600; }
+    .btn-emergency.active { background: #cc6600; color: #fff; border-color: #cc6600; }
+
+    .btn-full { width: 100%; margin-top: 8px; }
+
+    .modal-overlay {
+      position: fixed; top:0; left:0; right:0; bottom:0;
+      background: rgba(0,0,0,0.85); z-index: 10000;
+      display: none; align-items: center; justify-content: center;
+    }
+    .modal-overlay.show { display: flex; }
+
+    .modal {
+      background: var(--bg2); border: 1px solid var(--border);
+      padding: 24px; max-width: 560px; width: 90%; max-height: 80vh; overflow-y: auto;
+    }
+
+    .modal-title { font-size: 14px; color: var(--hi); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 20px; }
+
+    .report-grade { font-size: 72px; font-weight: bold; text-align: center; margin-bottom: 8px; line-height: 1; }
+    .grade-S { color: #ffd700; }
+    .grade-A { color: #4a9a4a; }
+    .grade-B { color: #4488cc; }
+    .grade-C { color: #cc8800; }
+    .grade-D { color: #cc2222; }
+
+    .report-score    { font-size: 13px; color: var(--text2); text-align: center; margin-bottom: 20px; letter-spacing: 0.1em; }
+    .report-scenario { font-size: 11px; text-align: center; padding: 6px 12px; border: 1px solid var(--warn); color: var(--warn); margin-bottom: 20px; letter-spacing: 0.15em; }
+
+    .report-autocomplete {
+      font-size: 11px; text-align: center; padding: 5px;
+      border: 1px solid var(--ok); color: var(--ok);
+      margin-bottom: 12px; letter-spacing: 0.1em;
+    }
+
+    .report-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .report-row:last-of-type { border-bottom: none; }
+    .report-key   { color: var(--text2); letter-spacing: 0.1em; }
+    .report-value { color: var(--hi); }
+    .report-value.good { color: var(--ok); }
+    .report-value.bad  { color: var(--danger); }
+
+    .action-list  { margin-top: 16px; }
+    .action-title { font-size: 9px; color: var(--text2); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 8px; }
+    .action-item  { font-size: 11px; padding: 3px 0; color: var(--text); display: flex; gap: 10px; }
+    .action-time  { color: var(--text2); flex-shrink: 0; }
+
+    .modal-close {
+      width: 100%; margin-top: 20px; padding: 10px;
+      font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 0.15em;
+      cursor: pointer; border: 1px solid var(--border); background: var(--bg3); color: var(--text);
+      text-transform: uppercase; transition: all 0.2s;
+    }
+    .modal-close:hover { border-color: var(--ok); color: var(--ok); }
+  </style>
+</head>
+<body>
+
+<div class="scanline"></div>
+
+<div class="top-bar">
+  <div>
+    <div class="logo">DDoS Defense Lab</div>
+    <div class="logo-sub">Blue Team Operations Console</div>
+  </div>
+  <div class="top-right">
+    <span class="phase-badge" id="phase-badge">Normal</span>
+    <span class="clock" id="clock">--:--:--</span>
+  </div>
+</div>
+
+<div class="metrics-row">
+  <div class="card"><div class="card-label">Req / sec</div><div class="card-value val-ok" id="rps">0</div></div>
+  <div class="card"><div class="card-label">Avg latency</div><div class="card-value val-ok" id="latency">0<span class="card-unit">ms</span></div></div>
+  <div class="card"><div class="card-label">CPU</div><div class="card-value val-ok" id="cpu">0<span class="card-unit">%</span></div></div>
+  <div class="card"><div class="card-label">Memory</div><div class="card-value val-ok" id="memory">0<span class="card-unit">%</span></div></div>
+  <div class="card"><div class="card-label">Blocked IPs</div><div class="card-value val-ok" id="blocked">0</div></div>
+</div>
+
+<div class="grid-main">
+  <div class="panel">
+    <div class="panel-title">Traffic — last 30s</div>
+    <div class="chart-area" id="chart"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Alerts</div>
+    <div class="alert-list" id="alert-list">
+      <div class="alert-item alert-info">
+        <div class="alert-message">System online. Monitoring active.</div>
+        <div class="alert-time">--:--:--</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid-bottom">
+  <div class="panel">
+    <div class="panel-title">Scenario control</div>
+    <div class="hint-box" id="hint-box">--</div>
+    <div class="stat-row">
+      <div class="stat-box"><div class="stat-label">Total sent</div><div class="stat-value" id="total-sent">0</div></div>
+      <div class="stat-box"><div class="stat-label">Block rate</div><div class="stat-value" id="block-rate">0<span style="font-size:11px">%</span></div></div>
+    </div>
+    <div class="block-rate-bar"><div class="block-rate-fill" id="block-rate-fill" style="width:0%"></div></div>
+    <button class="btn btn-scenario btn-full" id="btn-scenario" onclick="toggleScenario()">Scenario start</button>
+    <button class="btn btn-full" onclick="unblockAll()" style="margin-top:6px;">Unblock all</button>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Defense controls</div>
+    <div class="stat-row" style="margin-bottom:10px;">
+      <div class="stat-box"><div class="stat-label">Normal sent</div><div class="stat-value" id="normal-sent">0</div></div>
+      <div class="stat-box"><div class="stat-label">False positive</div><div class="stat-value fp" id="false-positive">0</div></div>
+    </div>
+    <div class="ctrl-row">
+      <div><div class="ctrl-label">Rate limiting</div><div class="ctrl-desc">Request threshold enforcement</div></div>
+      <label class="toggle"><input type="checkbox" id="toggle-rate" onchange="setControl('rate-limiting', this.checked)"><span class="toggle-track"></span></label>
+    </div>
+    <div class="ctrl-row">
+      <div><div class="ctrl-label">IP blocking</div><div class="ctrl-desc">Temporary ban on excess IPs</div></div>
+      <label class="toggle"><input type="checkbox" id="toggle-block" onchange="setControl('ip-blocking', this.checked)"><span class="toggle-track"></span></label>
+    </div>
+    <button class="btn btn-emergency btn-full" id="btn-emergency" onclick="toggleEmergency()">Emergency mode — Off</button>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">IP tracker</div>
+    <div class="ip-list" id="ip-list">
+      <div class="log-item log-ok"><span class="log-time">--:--:--</span><span>Awaiting traffic...</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Event log</div>
+  <div class="log-list" id="log-list">
+    <div class="log-item log-ok"><span class="log-time">--:--:--</span><span>Console initialized.</span></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">Mission report</div>
+    <div class="report-grade" id="report-grade">-</div>
+    <div class="report-score" id="report-score">Score: --</div>
+    <div id="report-autocomplete"></div>
+    <div class="report-scenario" id="report-scenario">--</div>
+    <div id="report-rows"></div>
+    <div class="action-list">
+      <div class="action-title">Your actions</div>
+      <div id="action-list"></div>
+    </div>
+    <button class="modal-close" onclick="closeReport()">Close</button>
+  </div>
+</div>
+
+<script>
+  const rpsHistory = new Array(30).fill(0);
+  const bars = [];
+  let prevBlockedCount = 0;
+  let prevRps = 0;
+  let scenarioRunning = false;
+  let emergencyOn = false;
+  let currentPhase = "idle";
+  let manuallyBlockedIps = new Set();
+  let falsePositiveCount = 0;
+
+  function initChart() {
+    const chart = document.getElementById("chart");
+    for (let i = 0; i < 30; i++) {
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      bar.style.background = "#2a2a2a";
+      bar.style.height = "2px";
+      chart.appendChild(bar);
+      bars.push(bar);
+    }
+  }
+
+  function updateChart(rps) {
+    rpsHistory.shift();
+    rpsHistory.push(rps);
+    const maxVal = Math.max(...rpsHistory, 1);
+    bars.forEach((bar, i) => {
+      const height = Math.round((rpsHistory[i] / maxVal) * 74) + 2;
+      bar.style.height = height + "px";
+      if (rpsHistory[i] > 20)      bar.style.background = "#cc2222";
+      else if (rpsHistory[i] > 10) bar.style.background = "#cc8800";
+      else                          bar.style.background = "#4a9a4a";
+    });
+  }
+
+  function colorClass(v, warn, danger) {
+    if (v >= danger) return "val-danger";
+    if (v >= warn)   return "val-warn";
+    return "val-ok";
+  }
+
+  function formatTime(ts) { return new Date(ts * 1000).toTimeString().slice(0, 8); }
+  function now() { return new Date().toTimeString().slice(0, 8); }
+  function tick() { document.getElementById("clock").textContent = now(); }
+
+  function addAlert(alert) {
+    const list = document.getElementById("alert-list");
+    const item = document.createElement("div");
+    item.className = "alert-item alert-" + alert.level;
+    item.innerHTML = `<div class="alert-message">${alert.message}</div><div class="alert-time">${formatTime(alert.timestamp)}</div>`;
+    list.prepend(item);
+    while (list.children.length > 10) list.removeChild(list.lastChild);
+  }
+
+  function addLog(message, type) {
+    const list = document.getElementById("log-list");
+    const item = document.createElement("div");
+    item.className = "log-item log-" + type;
+    item.innerHTML = `<span class="log-time">${now()}</span><span>${message}</span>`;
+    list.prepend(item);
+    while (list.children.length > 12) list.removeChild(list.lastChild);
+  }
+
+  async function manualBlock(ip) {
+    await fetch("/defense/manual-block", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip }),
+    });
+    manuallyBlockedIps.add(ip);
+    addLog(`Manual block: ${ip}`, "block");
+  }
+
+  function updateIpTracker(data) {
+    const requestLog      = data.request_log ?? {};
+    const manuallyBlocked = data.manually_blocked_ips ?? [];
+    if (Object.keys(requestLog).length === 0) return;
+
+    const list = document.getElementById("ip-list");
+    list.innerHTML = "";
+
+    Object.entries(requestLog)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10)
+      .forEach(([ip, info]) => {
+        const item = document.createElement("div");
+        const isManual = manuallyBlockedIps.has(ip) || manuallyBlocked.includes(ip);
+        item.className = "ip-item";
+
+        let statusHtml = "";
+        if (isManual)        statusHtml = `<span class="ip-status-manual">MANUAL</span>`;
+        else if (info.is_blocked) statusHtml = `<span class="ip-status-blocked">BLOCKED</span>`;
+        else                 statusHtml = `<span class="ip-status-unknown">UNKNOWN</span>`;
+
+        const canBlock = !info.is_blocked && !isManual;
+        item.innerHTML = `
+          <span class="ip-addr">${ip}</span>
+          <span class="ip-count">${info.count}x</span>
+          ${statusHtml}
+          ${canBlock ? `<button class="ip-block-btn" onclick="manualBlock('${ip}')">BLOCK</button>` : ""}
+        `;
+        list.appendChild(item);
+      });
+  }
+
+  function updatePhase(data) {
+    const serverPhase = data.scenario_phase ?? "idle";
+    const emergency   = data.emergency_mode ?? false;
+    const rps         = data.rps_10s ?? 0;
+
+    let phase = "idle";
+    if (emergency)                          phase = "emergency";
+    else if (serverPhase === "complete")    phase = "complete";
+    else if (serverPhase === "recovering")  phase = "recovering";
+    else if (serverPhase === "attacking")   phase = "attack";
+    else if (scenarioRunning || rps > 20)   phase = "attack";
+
+    if (phase === currentPhase) return;
+    currentPhase = phase;
+
+    const body  = document.body;
+    const badge = document.getElementById("phase-badge");
+    body.className = "";
+
+    const map = {
+      idle:       { cls: "",                  text: "Normal" },
+      attack:     { cls: "phase-attack",      text: "Under Attack" },
+      recovering: { cls: "phase-recovering",  text: "Recovering..." },
+      complete:   { cls: "phase-complete",    text: "Mission Complete" },
+      emergency:  { cls: "phase-emergency",   text: "Emergency" },
+    };
+
+    const p = map[phase] ?? map.idle;
+    if (p.cls) body.classList.add(p.cls);
+    badge.textContent = p.text;
+
+    if (phase === "recovering") addLog("Attack suppressed. Monitoring stability...", "ok");
+    if (phase === "complete")   addLog("Mission complete! Generating report...", "ok");
+  }
+
+  function syncControls(data) {
+    document.getElementById("toggle-rate").checked  = data.rate_limiting_enabled ?? false;
+    document.getElementById("toggle-block").checked = data.ip_blocking_enabled ?? false;
+
+    emergencyOn = data.emergency_mode ?? false;
+    const ebtn = document.getElementById("btn-emergency");
+    ebtn.textContent = emergencyOn ? "Emergency mode — On" : "Emergency mode — Off";
+    ebtn.classList.toggle("active", emergencyOn);
+
+    document.getElementById("total-sent").textContent  = data.total_sent ?? 0;
+    document.getElementById("normal-sent").textContent = data.normal_total_sent ?? 0;
+    document.getElementById("false-positive").textContent = data.scenario_false_positives ?? 0;
+
+    const br = data.block_rate ?? 0;
+    document.getElementById("block-rate").innerHTML = br + '<span style="font-size:11px">%</span>';
+    const fill = document.getElementById("block-rate-fill");
+    fill.style.width = br + "%";
+    fill.style.background = br > 50 ? "#4a9a4a" : "#cc4444";
+  }
+
+  function updateUI(data) {
+    const rps     = data.rps_10s ?? 0;
+    const latency = data.avg_latency_ms ?? 0;
+    const cpu     = data.cpu_percent ?? 0;
+    const memory  = data.memory_percent ?? 0;
+    const blocked = data.blocked_ips?.length ?? 0;
+
+    document.getElementById("rps").textContent    = rps;
+    document.getElementById("rps").className      = "card-value " + colorClass(rps, 10, 20);
+    document.getElementById("latency").innerHTML  = latency + '<span class="card-unit">ms</span>';
+    document.getElementById("latency").className  = "card-value " + colorClass(latency, 200, 500);
+    document.getElementById("cpu").innerHTML      = cpu + '<span class="card-unit">%</span>';
+    document.getElementById("cpu").className      = "card-value " + colorClass(cpu, 60, 80);
+    document.getElementById("memory").innerHTML   = memory + '<span class="card-unit">%</span>';
+    document.getElementById("memory").className   = "card-value " + colorClass(memory, 70, 85);
+    document.getElementById("blocked").textContent = blocked;
+    document.getElementById("blocked").className  = "card-value " + (blocked > 0 ? "val-danger" : "val-ok");
+
+    if (data.new_alerts?.length > 0) data.new_alerts.forEach(a => addAlert(a));
+    if (blocked > prevBlockedCount) addLog(`IP blocked — total: ${blocked}`, "block");
+    if (rps > 20 && prevRps <= 20)  addLog(`Traffic spike — rps: ${rps}`, "spike");
+    if (rps <= 20 && prevRps > 20 && currentPhase !== "complete") addLog("Traffic normalized.", "ok");
+
+    prevBlockedCount = blocked;
+    prevRps = rps;
+
+    updateChart(rps);
+    updatePhase(data);
+    syncControls(data);
+    updateIpTracker(data);
+
+    if (data.pending_report) {
+      scenarioRunning = false;
+      const btn = document.getElementById("btn-scenario");
+      btn.textContent = "Scenario start";
+      btn.classList.remove("active");
+      document.getElementById("hint-box").style.display = "none";
+      showReport(data.pending_report);
+    }
+  }
+
+  async function toggleScenario() {
+  const btn = document.getElementById("btn-scenario");
+  btn.disabled = true;
+
+  if (!scenarioRunning) {
+    const res  = await fetch("/scenario/start", { method: "POST" });
+    const data = await res.json();
+    scenarioRunning = true;
+    currentPhase = "attack";
+
+    const hint = document.getElementById("hint-box");
+    hint.textContent = data.hint ?? "異常を検知しました。状況を判断してください。";
+    hint.style.display = "block";
+
+    btn.textContent = "Scenario stop";
+    btn.classList.add("active");
+    document.body.className = "phase-attack";
+    document.getElementById("phase-badge").textContent = "Under Attack";
+    addLog("Scenario started. Analyze the traffic.", "spike");
+
+    // ↓ リセット処理を追加
+    manuallyBlockedIps = new Set();
+    falsePositiveCount = 0;
+    document.getElementById("ip-list").innerHTML =
+      '<div class="log-item log-ok"><span class="log-time">--:--:--</span><span>Awaiting traffic...</span></div>';
+    document.getElementById("false-positive").textContent = "0";
+    document.getElementById("total-sent").textContent = "0";
+    document.getElementById("normal-sent").textContent = "0";
+    document.getElementById("block-rate").innerHTML = '0<span style="font-size:11px">%</span>';
+    document.getElementById("block-rate-fill").style.width = "0%";
+
+  } else {
+    const res  = await fetch("/scenario/stop", { method: "POST" });
+    const data = await res.json();
+    scenarioRunning = false;
+    currentPhase = "idle";
+
+    btn.textContent = "Scenario start";
+    btn.classList.remove("active");
+    document.body.className = "";
+    document.getElementById("phase-badge").textContent = "Normal";
+    document.getElementById("hint-box").style.display = "none";
+    addLog("Scenario ended.", "ok");
+
+    if (data.report) showReport(data.report);
+  }
+
+  btn.disabled = false;
+}
+
+  function showReport(report) {
+    document.getElementById("report-grade").textContent = report.grade;
+    document.getElementById("report-grade").className   = "report-grade grade-" + report.grade;
+    document.getElementById("report-score").textContent = `Score: ${report.score} / 100`;
+    document.getElementById("report-scenario").textContent = `Scenario: ${report.scenario}`;
+
+    const ac = document.getElementById("report-autocomplete");
+    if (report.auto_completed) {
+      ac.innerHTML = '<div class="report-autocomplete">✓ Mission auto-completed — Attack suppressed</div>';
+    } else {
+      ac.innerHTML = "";
+    }
+
+    const rows = [
+      { key: "Duration",        value: report.duration_sec + "s" },
+      { key: "Block rate",      value: report.block_rate + "%",        good: report.block_rate >= 80 },
+      { key: "False positives", value: report.false_positives + "件",  good: report.false_positives === 0 },
+      { key: "Time to defend",  value: report.time_to_defend ? report.time_to_defend + "s" : "未発動" },
+      { key: "Manual blocks",   value: report.manual_blocks + "件" },
+      { key: "Normal blocked",  value: report.normal_blocked + "件",   good: report.normal_blocked === 0 },
+    ];
+
+    const rowsEl = document.getElementById("report-rows");
+    rowsEl.innerHTML = "";
+    rows.forEach(r => {
+      const cls = r.good === true ? "report-value good" : r.good === false ? "report-value bad" : "report-value";
+      rowsEl.innerHTML += `<div class="report-row"><span class="report-key">${r.key}</span><span class="${cls}">${r.value}</span></div>`;
+    });
+
+    const actionEl = document.getElementById("action-list");
+    actionEl.innerHTML = "";
+    if (report.actions?.length > 0) {
+      report.actions.forEach(a => {
+        actionEl.innerHTML += `<div class="action-item"><span class="action-time">${formatTime(a.timestamp)}</span><span>${a.detail}</span></div>`;
+      });
+    } else {
+      actionEl.innerHTML = '<div class="action-item" style="color:var(--text2)">No actions recorded.</div>';
+    }
+
+    document.getElementById("modal-overlay").classList.add("show");
+  }
+
+  function closeReport() {
+    document.getElementById("modal-overlay").classList.remove("show");
+    document.body.className = "";
+    document.getElementById("phase-badge").textContent = "Normal";
+    currentPhase = "idle";
+  }
+
+  async function setControl(type, enabled) {
+    await fetch(`/defense/${type}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    addLog(`${type}: ${enabled ? "enabled" : "disabled"}`, enabled ? "ok" : "spike");
+  }
+
+  async function unblockAll() {
+    const res  = await fetch("/defense/unblock-all", { method: "POST" });
+    const data = await res.json();
+    addLog(`${data.unblocked_count} IPs unblocked.`, "ok");
+    manuallyBlockedIps = new Set();
+    document.getElementById("ip-list").innerHTML =
+      '<div class="log-item log-ok"><span class="log-time">--:--:--</span><span>Awaiting traffic...</span></div>';
+  }
+
+  async function toggleEmergency() {
+    emergencyOn = !emergencyOn;
+    await fetch("/defense/emergency", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: emergencyOn }),
+    });
+    addLog(`Emergency mode: ${emergencyOn ? "ACTIVATED" : "DEACTIVATED"}`, emergencyOn ? "block" : "ok");
+  }
+
+  function connect() {
+    const ws = new WebSocket("ws://localhost:8000/ws");
+    ws.onopen    = () => addLog("WebSocket connection established.", "ok");
+    ws.onmessage = (e) => updateUI(JSON.parse(e.data));
+    ws.onclose   = () => { addLog("Connection lost. Reconnecting...", "spike"); setTimeout(connect, 3000); };
+    ws.onerror   = () => addLog("Connection error.", "block");
+  }
+
+  setInterval(tick, 1000);
+  initChart();
+  connect();
+</script>
+
+</body>
+</html>
